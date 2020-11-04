@@ -1,0 +1,36 @@
+version: "3.2"
+
+services:
+  engine_db:
+    container_name: api_db
+    image: postgres:10-alpine
+    networks:
+      default:
+        aliases:
+          - db
+    restart: always
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_DB: test_db
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  api:
+    container_name: api
+    image: api
+    restart: always
+    depends_on:
+      - engine_db
+    build:
+      context: ./social_network
+    command: >
+      bash -c "python3 manage.py migrate && python3 manage.py runserver 0.0.0.0:8000 --settings=code.settings.prod"
+    environment:
+      SECRET_KEY: ''
+      DB_NAME: ''
+      DB_USER: ''
+    ports:
+      - "8000:8000"
+volumes:
+  db_data:
