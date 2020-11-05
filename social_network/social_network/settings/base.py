@@ -25,7 +25,7 @@ SECRET_KEY = os.getenv('SECRET_KEY')
 HUNTER_API_KEY = os.getenv('HUNTER_API_KEY')
 CLEARBIT_API_KEY = os.getenv('CLEARBIT_API_KEY')
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 
 
 # Application definition

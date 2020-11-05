@@ -1,11 +1,13 @@
 import random
 import string
+import logging
+import logging.config
+import sys
 
 import yaml
-import requests
 import collections
 
-from auth import CustomAuth
+from api import UserSocialNetworkApi, PostSocialNetworkApi
 
 Like = collections.namedtuple('Like', ['owner'])
 
@@ -14,36 +16,24 @@ class User:
     def __init__(self, email, api_url, password=None):
         self.email = email
         self.password = password if password else self._make_random_password()
+        self._api = UserSocialNetworkApi(api_url)
         self._api_url = api_url
         self.posts = []
         self.setted_likes = 0
-        self._auth = None
 
     def signup(self):
-        response = requests.post(f'{self._api_url}/user/signup/', data={"email": self.email,
-                                                                        "password": self.password
-                                                                        })
-        if response.status_code != requests.codes.created:
-            raise Exception('User not created.')
+        self._api.signup({"email": self.email, "password": self.password})
 
     def login(self):
-        token = self._get_token()
-        self._auth = CustomAuth(token)
-
-    def _get_token(self):
-        response = requests.post(f'{self._api_url}/user/login/', data={"email": self.email,
-                                                                       "password": self.password
-                                                                       })
-        data = response.json()
-        return data['token']
+        self._api.login({"email": self.email, "password": self.password})
 
     def create_post(self, text=None):
         post = Post(self, self._api_url, text)
-        post.create(self._auth)
+        post.create(self._api.auth)
         self.posts.append(post)
 
-    def set_like(self, post):
-        post.like(owner=self, user_auth=self._auth)
+    def send_like(self, post):
+        post.like(owner=self, user_auth=self._api.auth)
         self.setted_likes += 1
 
     @staticmethod
@@ -67,25 +57,21 @@ class User:
 class Post:
     def __init__(self, author, api_url, text=None):
         self.author = author
-        self._api_url = api_url
+        self._api = PostSocialNetworkApi(api_url)
         self.text = text if text else self._get_text()
         self.likes = []
-        self._id = None
+        self._post_id = None
 
     @staticmethod
     def _get_text():
         return "Hello World!"
 
     def create(self, user_auth):
-        response = requests.post(f'{self._api_url}/api/posts/', data={"text": self.text}, auth=user_auth)
-        if response.status_code != requests.codes.created:
-            raise Exception('Post not created.')
-        self._id = response.json()['id']
+        data = {"text": self.text}
+        self._api.create(data=data, auth=user_auth)
 
     def like(self, owner, user_auth):
-        response = requests.post(f'{self._api_url}/api/posts/{self._id}/like/', auth=user_auth)
-        if response.status_code != requests.codes.ok:
-            raise Exception('Like not created.')
+        self._api.like(owner, user_auth)
         like = Like(owner=owner)
         self.likes.append(like)
 
@@ -97,25 +83,36 @@ class AutomatedBot:
         self._users = []
 
     def start(self):
+        logging.info(' Bot started '.center(60, '*'))
+        logging.info(' Start users initializing '.center(60, '*'))
         self.init_users()
         for user in self._users:
             user.login()
             self.create_posts(user)
-        self.likes()
+        logging.info(' Start likes activity by users '.center(60, '*'))
+        self.likes_engine()
 
-    def likes(self):
+    def likes_engine(self):
         try:
-            curr_user = self._get_curr_user()
-            post = self._get_user_post(curr_user)
-            if curr_user not in [like.owner for like in post.likes]:
-                curr_user.set_like(post)
-            self.likes()
+            sender = self._get_curr_user()
+            logging.info(f' Start likes activity by user {sender.email} '.center(60, '*'))
+            for i in range(self.config['max_likes_per_user']):
+                receiver = self._get_user_with_zero_likes(sender)
+                self._send_like_by_user(sender, receiver)
+            self.likes_engine()
         except Exception as e:
-            print(e)
+            logging.error(e)
 
-    def _get_user_post(self, curr_user):
-        user = self._get_user_with_zero_likes(curr_user)
-        return random.choice(user.posts)
+    def _send_like_by_user(self, sender, receiver):
+        post = self._get_post(sender, receiver.posts)
+        sender.send_like(post)
+        logging.info(f'User {sender.email} send like for user {receiver.email}')
+
+    def _get_post(self, sender, posts):
+        post = random.choice(posts)
+        if sender not in [like.owner for like in post.likes]:
+            return post
+        return self._get_post(sender, posts)
 
     def _get_user_with_zero_likes(self, curr_user):
         users_list = sorted(self._users, key=lambda u: not u.is_zero_liked_post)
@@ -134,8 +131,10 @@ class AutomatedBot:
 
     def create_posts(self, user):
         posts_count = random.randrange(1, self.config['max_posts_per_user'])
+        logging.info(f'Creation of {posts_count} posts for user {user.email} started')
         for i in range(posts_count):
             user.create_post()
+            logging.info(f'Post {i} created.')
 
     def init_users(self):
         for k in range(0, self.config['number_of_users']):
@@ -143,6 +142,7 @@ class AutomatedBot:
             user = User(email, self._url)
             user.signup()
             self._users.append(user)
+            logging.info(f'User {email} created.')
 
     @staticmethod
     def _read_configurations():
@@ -152,6 +152,10 @@ class AutomatedBot:
 
 
 def main():
+    logging.basicConfig(level=logging.INFO, format='%(message)s', handlers=[
+        logging.FileHandler("automated_bot.log"),
+        logging.StreamHandler()
+    ])
     bot = AutomatedBot()
     bot.start()
 

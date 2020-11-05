@@ -25,7 +25,7 @@ services:
     build:
       context: ./social_network
     command: >
-      bash -c "python3 manage.py migrate && python3 manage.py runserver 0.0.0.0:8000 --settings=code.settings.prod"
+      bash -c "python3 manage.py migrate && python3 manage.py runserver 0.0.0.0:8000 --settings=social_network.settings.dev"
     environment:
       SECRET_KEY: ''
       HUNTER_API_KEY: ''
